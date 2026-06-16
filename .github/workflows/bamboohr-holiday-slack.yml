@@ -2,7 +2,7 @@ name: BambooHR Holiday Slack Notification
 
 on:
   schedule:
-    - cron: '30 7 * * 1-5'  # 08:30 CET (UTC+1), Mon-Fri
+    - cron: '30 7 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,6 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL: '#team-bamboohr'
         run: |
-
           TODAY=$(date +%Y-%m-%d)
           echo "Checking holidays for $TODAY"
 
@@ -30,15 +29,13 @@ jobs:
           BODY=$(echo "$RESPONSE" | head -n -1)
 
           echo "BambooHR response code: $HTTP_CODE"
+          echo "Response body: $BODY"
 
- (echo "BambooHR response code: $HTTP_CODE"):
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "BambooHR API error (HTTP $HTTP_CODE) — exiting"
-            echo "Response body: $BODY"
+            echo "BambooHR API error — exiting"
             exit 1
           fi
 
-          # Filter for holidays only (type = "holiday")
           HOLIDAY_COUNT=$(echo "$BODY" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
@@ -46,7 +43,7 @@ jobs:
           print(len(holidays))
           ")
 
-          echo "Holidays found today: $HOLIDAY_COUNT"
+          echo "Holidays found: $HOLIDAY_COUNT"
 
           if [ "$HOLIDAY_COUNT" -eq "0" ]; then
             echo "No holidays today — nothing to post."
@@ -57,32 +54,14 @@ jobs:
           import sys, json
           data = json.load(sys.stdin)
           holidays = [e for e in data if e.get('type') == 'holiday']
-          lines = []
-          for h in holidays:
-              name = h.get('name', 'Public Holiday')
-              lines.append(f':calendar: *{name}*')
-          msg = '*Public Holiday Today*\n' + '\n'.join(lines)
-          print(msg)
+          lines = [f':calendar: *{h.get(\"name\", \"Public Holiday\")}*' for h in holidays]
+          print('*Public Holiday Today*\n' + '\n'.join(lines))
           ")
 
-          echo "Posting to Slack: $SLACK_TEXT"
-
-          SLACK_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST \
+          curl -s -X POST \
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json" \
-            --data "{
-              \"channel\": \"${SLACK_CHANNEL}\",
-              \"text\": $(echo "$SLACK_TEXT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))'),
-              \"unfurl_links\": false
-            }" \
-            https://slack.com/api/chat.postMessage)
+            --data "{\"channel\":\"${SLACK_CHANNEL}\",\"text\":$(echo "$SLACK_TEXT" | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read().strip()))')}" \
+            https://slack.com/api/chat.postMessage
 
-          echo "Slack response code: $SLACK_RESPONSE"
-
-          if [ "$SLACK_RESPONSE" != "200" ]; then
-            echo "Slack API error (HTTP $SLACK_RESPONSE)"
-            exit 1
-          fi
-
-          echo "Done — message posted to ${SLACK_CHANNEL}"
+          echo "Done!"
