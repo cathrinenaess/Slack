@@ -25,8 +25,7 @@ jobs:
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -u "${BAMBOOHR_API_KEY}:x" \
             -H "Accept: application/json" \
-            "https://api.bamboohr.com/api/gateway.php/${BAMBOOHR_SUBDOMAIN}/v1/holidays/days/?start=${TODAY}&end=${TODAY}")
-
+            "https://api.bamboohr.com/api/gateway.php/${BAMBOOHR_SUBDOMAIN}/v1/time_off/types/")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
 
