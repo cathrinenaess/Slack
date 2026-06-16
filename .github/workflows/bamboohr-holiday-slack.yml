@@ -17,7 +17,6 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL: '#team-bamboohr'
         run: |
-          set -e
 
           TODAY=$(date +%Y-%m-%d)
           echo "Checking holidays for $TODAY"
@@ -32,6 +31,7 @@ jobs:
 
           echo "BambooHR response code: $HTTP_CODE"
 
+ (echo "BambooHR response code: $HTTP_CODE"):
           if [ "$HTTP_CODE" != "200" ]; then
             echo "BambooHR API error (HTTP $HTTP_CODE) — exiting"
             echo "Response body: $BODY"
