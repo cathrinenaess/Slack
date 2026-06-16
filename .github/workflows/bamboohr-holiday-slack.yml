@@ -1,1 +1,93 @@
+name: BambooHR Holiday Slack Notification
 
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'  # 08:30 CET (UTC+1) / 07:30 BST adjust if needed
+  workflow_dispatch:          # allows manual trigger from GitHub UI for testing
+
+jobs:
+  check-holidays:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check BambooHR for today's public holidays
+        env:
+          BAMBOOHR_API_KEY: ${{ secrets.BAMBOOHR_API_KEY }}
+          BAMBOOHR_SUBDOMAIN: ${{ secrets.BAMBOOHR_SUBDOMAIN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: '#team-bamboohr'
+        run: |
+          set -e
+
+          TODAY=$(date +%Y-%m-%d)
+          echo "Checking holidays for $TODAY"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -u "${BAMBOOHR_API_KEY}:x" \
+            -H "Accept: application/json" \
+            "https://api.bamboohr.com/api/gateway.php/${BAMBOOHR_SUBDOMAIN}/v1/holidays/days/?start=${TODAY}&end=${TODAY}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "BambooHR response code: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "BambooHR API error (HTTP $HTTP_CODE) — exiting"
+            exit 1
+          fi
+
+          # Count holidays returned
+          HOLIDAY_COUNT=$(echo "$BODY" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          holidays = data if isinstance(data, list) else data.get('holidays', [])
+          print(len(holidays))
+          ")
+
+          echo "Holidays found today: $HOLIDAY_COUNT"
+
+          if [ "$HOLIDAY_COUNT" -eq "0" ]; then
+            echo "No holidays today — nothing to post."
+            exit 0
+          fi
+
+          # Build Slack message from holiday names
+          SLACK_TEXT=$(echo "$BODY" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          holidays = data if isinstance(data, list) else data.get('holidays', [])
+          lines = []
+          for h in holidays:
+              name = h.get('name', 'Public Holiday')
+              country = h.get('country', '')
+              if country:
+                  lines.append(f':calendar: *{name}* — {country}')
+              else:
+                  lines.append(f':calendar: *{name}*')
+          header = '*Public Holiday Today*'
+          msg = header + '\n' + '\n'.join(lines)
+          print(msg)
+          ")
+
+          echo "Posting to Slack: $SLACK_TEXT"
+
+          SLACK_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{
+              \"channel\": \"${SLACK_CHANNEL}\",
+              \"text\": $(echo "$SLACK_TEXT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read().strip()))'),
+              \"unfurl_links\": false
+            }" \
+            https://slack.com/api/chat.postMessage)
+
+          echo "Slack response code: $SLACK_RESPONSE"
+
+          if [ "$SLACK_RESPONSE" != "200" ]; then
+            echo "Slack API error (HTTP $SLACK_RESPONSE)"
+            exit 1
+          fi
+
+          echo "Done — message posted to ${SLACK_CHANNEL}"
