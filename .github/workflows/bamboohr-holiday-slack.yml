@@ -2,8 +2,8 @@ name: BambooHR Holiday Slack Notification
 
 on:
   schedule:
-    - cron: '30 7 * * 1-5'  # 08:30 CET (UTC+1) / 07:30 BST adjust if needed
-  workflow_dispatch:          # allows manual trigger from GitHub UI for testing
+    - cron: '30 7 * * 1-5'  # 08:30 CET (UTC+1), Mon-Fri
+  workflow_dispatch:
 
 jobs:
   check-holidays:
@@ -25,7 +25,8 @@ jobs:
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -u "${BAMBOOHR_API_KEY}:x" \
             -H "Accept: application/json" \
-            "https://api.bamboohr.com/api/gateway.php/${BAMBOOHR_SUBDOMAIN}/v1/time_off/types/")
+            "https://api.bamboohr.com/api/gateway.php/${BAMBOOHR_SUBDOMAIN}/v1/time_off/whos_out/?start=${TODAY}&end=${TODAY}")
+
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
 
@@ -33,14 +34,15 @@ jobs:
 
           if [ "$HTTP_CODE" != "200" ]; then
             echo "BambooHR API error (HTTP $HTTP_CODE) — exiting"
+            echo "Response body: $BODY"
             exit 1
           fi
 
-          # Count holidays returned
+          # Filter for holidays only (type = "holiday")
           HOLIDAY_COUNT=$(echo "$BODY" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
-          holidays = data if isinstance(data, list) else data.get('holidays', [])
+          holidays = [e for e in data if e.get('type') == 'holiday']
           print(len(holidays))
           ")
 
@@ -51,21 +53,15 @@ jobs:
             exit 0
           fi
 
-          # Build Slack message from holiday names
           SLACK_TEXT=$(echo "$BODY" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
-          holidays = data if isinstance(data, list) else data.get('holidays', [])
+          holidays = [e for e in data if e.get('type') == 'holiday']
           lines = []
           for h in holidays:
               name = h.get('name', 'Public Holiday')
-              country = h.get('country', '')
-              if country:
-                  lines.append(f':calendar: *{name}* — {country}')
-              else:
-                  lines.append(f':calendar: *{name}*')
-          header = '*Public Holiday Today*'
-          msg = header + '\n' + '\n'.join(lines)
+              lines.append(f':calendar: *{name}*')
+          msg = '*Public Holiday Today*\n' + '\n'.join(lines)
           print(msg)
           ")
 
